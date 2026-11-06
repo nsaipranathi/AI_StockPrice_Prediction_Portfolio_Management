@@ -1,0 +1,31 @@
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.db
+*.sqlite3
+.env
+.env.local
+
+# Models & Large Data Cache
+backend/models/lstm/*.h5
+backend/models/lstm/*.keras
+backend/models/scalers/*.pkl
+backend/data/cache/*.csv
+backend/data/cache/*.parquet
+
+# Node / React
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

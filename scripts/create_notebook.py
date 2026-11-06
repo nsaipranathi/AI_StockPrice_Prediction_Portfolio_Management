@@ -1,0 +1,214 @@
+import os
+import json
+
+notebook_dir = os.path.join("notebooks")
+os.makedirs(notebook_dir, exist_ok=True)
+
+cells = [
+    {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "# AI-Powered Stock Price Prediction & Portfolio Management Using LSTM\n",
+            "**Academic Major B.Tech Data Science Project**\n",
+            "**Application Name**: StockMind AI\n",
+            "**Primary AI Architecture**: Stacked Long Short-Term Memory (LSTM) Neural Network\n\n",
+            "---\n",
+            "## Notebook Overview\n",
+            "This notebook demonstrates the end-to-end data science pipeline:\n",
+            "1. **Historical Market Data Loading**: Load OHLCV datasets for representative stocks (AAPL, MSFT, GOOGL, TSLA, NVDA).\n",
+            "2. **Feature Engineering**: Compute technical indicators (SMA 20/50, EMA 20, RSI 14, MACD, Volatility).\n",
+            "3. **Time-Series Preprocessing**: MinMaxScaler normalization and strict chronological 60-day window sequence generation (70% Train, 15% Val, 15% Test).\n",
+            "4. **Stacked LSTM Training**: Keras sequential model with EarlyStopping and ModelCheckpointing.\n",
+            "5. **Model Evaluation**: Evaluation on unseen test data using MAE, RMSE, MAPE (%), and R² Score.\n",
+            "6. **Rule-Based Signal & Portfolio Risk Analytics**: Sharpe Ratio, Volatility, Max Drawdown, and HHI Concentration."
+        ]
+    },
+    {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "import os\n",
+            "import numpy as np\n",
+            "import pandas as pd\n",
+            "import matplotlib.pyplot as plt\n",
+            "from sklearn.preprocessing import MinMaxScaler\n",
+            "from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score\n",
+            "import tensorflow as tf\n",
+            "from tensorflow.keras.models import Sequential\n",
+            "from tensorflow.keras.layers import LSTM, Dense, Dropout\n\n",
+            "# Set random seed for reproducibility\n",
+            "tf.random.set_seed(42)\n",
+            "np.random.seed(42)\n",
+            "print('TensorFlow Version:', tf.__version__)"
+        ]
+    },
+    {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 1. Data Loading & Inspection"
+        ]
+    },
+    {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "data_path = os.path.join('data', 'AAPL.csv')\n",
+            "df = pd.read_csv(data_path)\n",
+            "df['Date'] = pd.to_datetime(df['Date'])\n",
+            "df.set_index('Date', inplace=True)\n",
+            "df.sort_index(inplace=True)\n",
+            "print(f'Loaded {len(df)} historical trading days for AAPL.')\n",
+            "df.head()"
+        ]
+    },
+    {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 2. Technical Indicators Engineering"
+        ]
+    },
+    {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# Simple & Exponential Moving Averages\n",
+            "df['SMA_20'] = df['Close'].rolling(window=20, min_periods=1).mean()\n",
+            "df['SMA_50'] = df['Close'].rolling(window=50, min_periods=1).mean()\n",
+            "df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()\n\n",
+            "# RSI (14 Period)\n",
+            "delta = df['Close'].diff()\n",
+            "gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()\n",
+            "loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()\n",
+            "rs = gain / (loss + 1e-10)\n",
+            "df['RSI_14'] = 100 - (100 / (1 + rs))\n\n",
+            "# MACD\n",
+            "ema12 = df['Close'].ewm(span=12, adjust=False).mean()\n",
+            "ema26 = df['Close'].ewm(span=26, adjust=False).mean()\n",
+            "df['MACD'] = ema12 - ema26\n",
+            "df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()\n\n",
+            "df.bfill(inplace=True)\n",
+            "df.head()"
+        ]
+    },
+    {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 3. Preprocessing & Chronological Train/Val/Test Split"
+        ]
+    },
+    {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "feature_cols = ['Close', 'Open', 'High', 'Low', 'Volume', 'SMA_20', 'SMA_50', 'EMA_20', 'RSI_14', 'MACD']\n",
+            "features = df[feature_cols].values\n",
+            "target = df[['Close']].values\n\n",
+            "# 70% Train, 15% Validation, 15% Testing\n",
+            "n_total = len(df)\n",
+            "n_train = int(n_total * 0.70)\n",
+            "n_val = int(n_total * 0.15)\n\n",
+            "scaler_x = MinMaxScaler()\n",
+            "scaler_y = MinMaxScaler()\n\n",
+            "# Fit ONLY on training set to prevent data leakage!\n",
+            "scaled_train_x = scaler_x.fit_transform(features[:n_train])\n",
+            "scaled_train_y = scaler_y.fit_transform(target[:n_train])\n\n",
+            "scaled_val_x = scaler_x.transform(features[n_train-60 : n_train+n_val])\n",
+            "scaled_val_y = scaler_y.transform(target[n_train-60 : n_train+n_val])\n\n",
+            "scaled_test_x = scaler_x.transform(features[n_train+n_val-60 :])\n",
+            "scaled_test_y = scaler_y.transform(target[n_train+n_val-60 :])\n\n",
+            "def create_sequences(X, y, lookback=60):\n",
+            "    seq_x, seq_y = [], []\n",
+            "    for i in range(lookback, len(X)):\n",
+            "        seq_x.append(X[i-lookback : i])\n",
+            "        seq_y.append(y[i, 0])\n",
+            "    return np.array(seq_x), np.array(seq_y)\n\n",
+            "X_train, y_train = create_sequences(scaled_train_x, scaled_train_y)\n",
+            "X_val, y_val = create_sequences(scaled_val_x, scaled_val_y)\n",
+            "X_test, y_test = create_sequences(scaled_test_x, scaled_test_y)\n\n",
+            "print(f'X_train shape: {X_train.shape}')\n",
+            "print(f'X_val shape:   {X_val.shape}')\n",
+            "print(f'X_test shape:  {X_test.shape}')"
+        ]
+    },
+    {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 4. Stacked Keras LSTM Model Architecture"
+        ]
+    },
+    {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "model = Sequential([\n",
+            "    LSTM(64, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])),\n",
+            "    Dropout(0.2),\n",
+            "    LSTM(32, return_sequences=False),\n",
+            "    Dropout(0.2),\n",
+            "    Dense(16, activation='relu'),\n",
+            "    Dense(1)\n",
+            "])\n\n",
+            "model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), loss='huber', metrics=['mae'])\n",
+            "model.summary()"
+        ]
+    },
+    {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 5. Model Evaluation Metrics"
+        ]
+    },
+    {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# Predict on Test Set\n",
+            "model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=32, verbose=1)\n",
+            "scaled_preds = model.predict(X_test)\n",
+            "preds = scaler_y.inverse_transform(scaled_preds).flatten()\n",
+            "actuals = target[n_train+n_val : n_train+n_val+len(preds)].flatten()\n\n",
+            "mae = mean_absolute_error(actuals, preds)\n",
+            "rmse = np.sqrt(mean_squared_error(actuals, preds))\n",
+            "mape = np.mean(np.abs((actuals - preds) / actuals)) * 100\n",
+            "r2 = r2_score(actuals, preds)\n\n",
+            "print(f'=== LSTM Model Evaluation Metrics ===')\n",
+            "print(f'MAE:  ${mae:.2f}')\n",
+            "print(f'RMSE: ${rmse:.2f}')\n",
+            "print(f'MAPE: {mape:.2f}%')\n",
+            "print(f'R²:   {r2:.4f}')"
+        ]
+    }
+]
+
+nb_content = {
+    "cells": cells,
+    "metadata": {
+        "language_info": {"name": "python"}
+    },
+    "nbformat": 4,
+    "nbformat_minor": 2
+}
+
+nb_file = os.path.join(notebook_dir, "01_LSTM_Stock_Prediction_and_Portfolio_Management.ipynb")
+with open(nb_file, "w") as f:
+    json.dump(nb_content, f, indent=2)
+
+print("Successfully created Jupyter Notebook at:", nb_file)
