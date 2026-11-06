@@ -1,0 +1,38 @@
+{
+  "ticker": "AMZN",
+  "metadata": {
+    "total_records": 1254,
+    "train_size": 817,
+    "val_size": 188,
+    "test_size": 189,
+    "lookback_window": 60,
+    "num_features": 10,
+    "feature_columns": [
+      "Close",
+      "Open",
+      "High",
+      "Low",
+      "Volume",
+      "SMA_20",
+      "SMA_50",
+      "EMA_20",
+      "RSI_14",
+      "MACD"
+    ],
+    "train_start_date": "2021-09-23",
+    "train_end_date": "2025-03-21",
+    "val_start_date": "2025-03-24",
+    "val_end_date": "2025-12-18",
+    "test_start_date": "2025-12-19",
+    "test_end_date": "2026-09-23"
+  },
+  "metrics": {
+    "mae": 13.9158,
+    "rmse": 17.2114,
+    "mape": 5.6424,
+    "r2": 0.3478
+  },
+  "epochs_trained": 8,
+  "final_train_loss": 0.001963157905265689,
+  "final_val_loss": 0.003902698401361704
+}
